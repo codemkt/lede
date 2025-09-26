@@ -269,17 +269,55 @@ jobs:
 
       - name: Check build results
         run: |
-          echo "=== 检查编译生成的文件 ==="
-          find ./bin/targets/ -name "*.bin" -o -name "*.img" -o -name "*.gz" | head -20
+          echo "=================================="
+          echo "📦 编译结果检查"
+          echo "=================================="
           echo ""
-          echo "=== 文件大小信息 ==="
-          find ./bin/targets/ -name "*.bin" -exec ls -lh {} \;
+          echo "🔍 查找生成的固件文件..."
+          FIRMWARE_FILES=$(find ./bin/targets/ -name "*.bin" -o -name "*.img" -o -name "*.gz")
+          if [ -n "$FIRMWARE_FILES" ]; then
+            echo "✅ 找到固件文件:"
+            echo "$FIRMWARE_FILES" | head -20
+            echo ""
+            echo "📏 固件文件大小:"
+            find ./bin/targets/ -name "*.bin" -exec ls -lh {} \;
+          else
+            echo "❌ 未找到固件文件!"
+          fi
           echo ""
-          echo "=== 检查是否有sysupgrade文件 ==="
-          find ./bin/targets/ -name "*sysupgrade*" || echo "未找到sysupgrade文件"
+          echo "🔍 检查sysupgrade文件..."
+          SYSUPGRADE_FILES=$(find ./bin/targets/ -name "*sysupgrade*" 2>/dev/null || true)
+          if [ -n "$SYSUPGRADE_FILES" ]; then
+            echo "✅ 找到sysupgrade文件:"
+            echo "$SYSUPGRADE_FILES"
+          else
+            echo "⚠️  未找到sysupgrade文件"
+          fi
           echo ""
-          echo "=== 检查initramfs文件 ==="
-          find ./bin/targets/ -name "*initramfs*" || echo "未找到initramfs文件"
+          echo "🔍 检查factory文件..."
+          FACTORY_FILES=$(find ./bin/targets/ -name "*factory*" 2>/dev/null || true)
+          if [ -n "$FACTORY_FILES" ]; then
+            echo "✅ 找到factory文件:"
+            echo "$FACTORY_FILES"
+          else
+            echo "⚠️  未找到factory文件"
+          fi
+          echo ""
+          echo "🔍 检查initramfs文件..."
+          INITRAMFS_FILES=$(find ./bin/targets/ -name "*initramfs*" 2>/dev/null || true)
+          if [ -n "$INITRAMFS_FILES" ]; then
+            echo "✅ 找到initramfs文件:"
+            echo "$INITRAMFS_FILES"
+          else
+            echo "⚠️  未找到initramfs文件"
+          fi
+          echo ""
+          echo "=================================="
+          echo "📋 文件类型说明:"
+          echo "• sysupgrade.bin - 用于已安装OpenWrt的设备升级"
+          echo "• factory.bin - 用于从原厂固件刷入OpenWrt"
+          echo "• initramfs.bin - 内存运行版本（临时使用）"
+          echo "=================================="
 
       - name: Prepare artifact
         run: |
@@ -306,3 +344,32 @@ jobs:
         with:
           name: OpenWrt_firmware_${{ github.event.inputs.device || 'scheduled' }}_${{ github.event.inputs.build_config || 'lean' }}
           path: ./bin/targets/
+
+      - name: Build Summary
+        run: |
+          echo "🎉 编译完成！"
+          echo ""
+          echo "📥 下载说明："
+          echo "1. 在Actions页面找到3个文件："
+          echo "   • OpenWrt_firmware_xxx.zip - 🔥 固件文件（这个是你需要的！）"
+          echo "   • OpenWrt_package_xxx.zip - 📦 软件包文件"
+          echo "   • OpenWrt_buildinfo_xxx.zip - 📋 编译信息"
+          echo ""
+          echo "2. 下载 OpenWrt_firmware_xxx.zip 并解压"
+          echo "3. 使用其中的 .bin 文件刷入你的路由器"
+          echo ""
+          echo "🔧 刷机文件类型："
+          if find ./bin/targets/ -name "*sysupgrade*" >/dev/null 2>&1; then
+            echo "   ✅ sysupgrade.bin - 用于OpenWrt设备升级"
+          fi
+          if find ./bin/targets/ -name "*factory*" >/dev/null 2>&1; then
+            echo "   ✅ factory.bin - 用于原厂固件刷入"
+          fi
+          if find ./bin/targets/ -name "*initramfs*" >/dev/null 2>&1; then
+            echo "   ✅ initramfs.bin - 内存运行版本"
+          fi
+          echo ""
+          echo "📱 设备信息："
+          echo "   • 设备: ${{ github.event.inputs.device || 'x86_64 (定时任务)' }}"
+          echo "   • 配置: ${{ github.event.inputs.build_config || 'lean (定时任务)' }}"
+          echo "   • 编译时间: $(date '+%Y-%m-%d %H:%M:%S')"
