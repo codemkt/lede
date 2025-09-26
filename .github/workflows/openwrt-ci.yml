@@ -10,6 +10,33 @@ name: OpenWrt-CI
 on:
   schedule:
     - cron: 0 20 * * *
+  workflow_dispatch:
+    inputs:
+      device:
+        description: '选择要编译的设备'
+        required: true
+        default: 'x86_64'
+        type: choice
+        options:
+          - x86_64
+          - mt7628an-gl-mt300n-v2
+          - mt7628an-hiwifi-hc5611
+          - mt7628an-hiwifi-hc5861b  
+          - mt7628an-hiwifi-hc5761a
+          - mt7628an-hiwifi-hc5661a
+          - mt7628an-cudy-wr1000
+          - mt7628an-d-team-pbr-d1
+          - mt7628an-elecom-wrc-1167fs
+          - mt7628an-buffalo-wcr-1166ds
+      build_config:
+        description: '编译配置'
+        required: false
+        default: 'lean'
+        type: choice
+        options:
+          - lean
+          - minimal
+          - full
 
 permissions:
   contents: read
@@ -63,7 +90,113 @@ jobs:
           ./scripts/feeds install -a
 
       - name: Generate configuration file
-        run: make defconfig
+        run: |
+          # 根据选择的设备生成对应的配置
+          DEVICE="${{ github.event.inputs.device || 'x86_64' }}"
+          BUILD_CONFIG="${{ github.event.inputs.build_config || 'lean' }}"
+          
+          echo "选择的设备: $DEVICE"
+          echo "编译配置: $BUILD_CONFIG"
+          
+          # 生成基础配置
+          if [[ "$DEVICE" == "x86_64" ]]; then
+            # X86_64配置
+            cat > .config << EOF
+          CONFIG_TARGET_x86=y
+          CONFIG_TARGET_x86_64=y
+          CONFIG_TARGET_x86_64_DEVICE_generic=y
+          EOF
+          else
+            # MT7628设备配置
+            cat > .config << EOF
+          CONFIG_TARGET_ramips=y
+          CONFIG_TARGET_ramips_mt76x8=y
+          CONFIG_TARGET_ramips_mt76x8_DEVICE_$(echo $DEVICE | sed 's/-/_/g')=y
+          EOF
+          fi
+          
+          # 添加通用配置
+          cat >> .config << EOF
+          CONFIG_DEVEL=y
+          CONFIG_TOOLCHAINOPTS=y
+          CONFIG_BUSYBOX_CUSTOM=y
+          CONFIG_BUSYBOX_CONFIG_FEATURE_EDITING_SAVEHISTORY=y
+          CONFIG_BUSYBOX_CONFIG_FEATURE_EDITING_VI=y
+          CONFIG_BUSYBOX_CONFIG_FEATURE_LESS_FLAGS=y
+          CONFIG_BUSYBOX_CONFIG_FEATURE_LESS_REGEXP=y
+          CONFIG_BUSYBOX_CONFIG_FEATURE_LESS_WINCH=y
+          CONFIG_KERNEL_BUILD_USER="OpenWrt-CI"
+          CONFIG_KERNEL_BUILD_DOMAIN="Azure"
+          CONFIG_CCACHE=y
+          CONFIG_PACKAGE_luci=y
+          CONFIG_LUCI_LANG_zh_Hans=y
+          CONFIG_PACKAGE_luci-theme-bootstrap=y
+          CONFIG_PACKAGE_curl=y
+          CONFIG_PACKAGE_htop=y
+          CONFIG_PACKAGE_nano=y
+          CONFIG_PACKAGE_tree=y
+          CONFIG_PACKAGE_vim-fuller=y
+          CONFIG_PACKAGE_wget-ssl=y
+          CONFIG_PACKAGE_kmod-tun=y
+          CONFIG_PACKAGE_luci-app-upnp=y
+          CONFIG_PACKAGE_luci-app-wol=y
+          CONFIG_PACKAGE_luci-app-ramfree=y
+          CONFIG_PACKAGE_luci-app-filetransfer=y
+          CONFIG_PACKAGE_luci-app-autoreboot=y
+          CONFIG_PACKAGE_luci-app-ssr-plus=y
+          EOF
+          
+          # 针对不同配置添加特定软件包
+          if [[ "$BUILD_CONFIG" == "full" ]]; then
+            cat >> .config << EOF
+          CONFIG_PACKAGE_luci-app-adbyby-plus=y
+          CONFIG_PACKAGE_luci-app-aria2=y
+          CONFIG_PACKAGE_luci-app-baidupcs-web=y
+          CONFIG_PACKAGE_luci-app-docker=y
+          CONFIG_PACKAGE_luci-app-frpc=y
+          CONFIG_PACKAGE_luci-app-hd-idle=y
+          CONFIG_PACKAGE_luci-app-kodexplorer=y
+          CONFIG_PACKAGE_luci-app-minidlna=y
+          CONFIG_PACKAGE_luci-app-openvpn-server=y
+          CONFIG_PACKAGE_luci-app-qbittorrent=y
+          CONFIG_PACKAGE_luci-app-ssr-plus=y
+          CONFIG_PACKAGE_luci-app-ttyd=y
+          CONFIG_PACKAGE_luci-app-v2ray-server=y
+          CONFIG_PACKAGE_luci-app-verysync=y
+          CONFIG_PACKAGE_luci-app-webadmin=y
+          CONFIG_PACKAGE_luci-app-wireguard=y
+          CONFIG_PACKAGE_luci-app-wrtbwmon=y
+          EOF
+          elif [[ "$BUILD_CONFIG" == "minimal" ]]; then
+            cat >> .config << EOF
+          # 最小化配置，去掉一些可选软件包
+          # CONFIG_PACKAGE_luci-app-ssr-plus is not set
+          EOF
+          fi
+          
+          # 针对MT7628设备添加特定配置
+          if [[ "$DEVICE" != "x86_64" ]]; then
+            cat >> .config << EOF
+          CONFIG_PACKAGE_kmod-mt76x2=y
+          CONFIG_PACKAGE_kmod-mt7628=y
+          CONFIG_PACKAGE_wpad-basic=y
+          CONFIG_PACKAGE_hostapd-common=y
+          CONFIG_PACKAGE_wpa-supplicant=y
+          EOF
+          fi
+          
+          make defconfig
+
+      - name: Show configuration
+        run: |
+          echo "=== 当前编译配置 ==="
+          echo "设备: ${{ github.event.inputs.device || 'x86_64 (定时任务)' }}"
+          echo "配置: ${{ github.event.inputs.build_config || 'lean (定时任务)' }}"
+          echo "=== 配置文件内容 ==="
+          head -20 .config
+          echo "..."
+          echo "=== 目标设备信息 ==="
+          grep "CONFIG_TARGET" .config | head -10
 
       - name: Download packages
         run: make download -j16
@@ -91,17 +224,17 @@ jobs:
       - name: Upload buildinfo
         uses: actions/upload-artifact@v4
         with:
-          name: OpenWrt_buildinfo
+          name: OpenWrt_buildinfo_${{ github.event.inputs.device || 'scheduled' }}_${{ github.event.inputs.build_config || 'lean' }}
           path: ./artifact/buildinfo/
 
       - name: Upload package
         uses: actions/upload-artifact@v4
         with:
-          name: OpenWrt_package
+          name: OpenWrt_package_${{ github.event.inputs.device || 'scheduled' }}_${{ github.event.inputs.build_config || 'lean' }}
           path: ./artifact/package/
 
       - name: Upload firmware
         uses: actions/upload-artifact@v4
         with:
-          name: OpenWrt_firmware
+          name: OpenWrt_firmware_${{ github.event.inputs.device || 'scheduled' }}_${{ github.event.inputs.build_config || 'lean' }}
           path: ./bin/targets/
